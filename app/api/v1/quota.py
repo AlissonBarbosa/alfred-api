@@ -3,8 +3,10 @@ from openstack import exceptions as os_exceptions
 
 from app.schemas.quota import QuotaResponse
 from app.services.openstack_client import OpenstackService, get_openstack_service
+import logging
 
 router = APIRouter(prefix="/api/v1/quota", tags=["quota"])
+logger = logging.getLogger(__name__)
 
 @router.get("/", response_model=QuotaResponse)
 async def get_quota(
@@ -14,6 +16,7 @@ async def get_quota(
   os_svc: OpenstackService = Depends(get_openstack_service),
 ):
   try:
+    logger.info("Fetching quota for tenant: %s", tenant_name)
     return os_svc.get_quota(tenant_name)
   except os_exceptions.ResourceNotFound as e:
     raise HTTPException(
