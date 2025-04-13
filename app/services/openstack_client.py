@@ -1,6 +1,9 @@
 import openstack
 from openstack import exceptions
 from fastapi import Query
+import logging
+
+logger = logging.getLogger(__name__)
 
 class OpenstackService:
   def __init__(self, cloud: str):
