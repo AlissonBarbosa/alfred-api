@@ -1,39 +1,49 @@
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from openstack import exceptions as os_exceptions
+from typing import List
 
-from app.schemas.quota import QuotaResponse
+from app.schemas.quota import ProjectQuotaResponse, TenantQuotaResponse
 from app.services.openstack_client import OpenstackService, get_openstack_service
+from app.api.dependecies import get_matched_projects
 import logging
 
 router = APIRouter(prefix="/api/v1/quota", tags=["quota"])
 logger = logging.getLogger(__name__)
 
-@router.get("/", response_model=QuotaResponse)
-async def get_quota(
-  tenant_name: str = Query(
-    ..., min_length=1, description="Tenant name to get quota for"
-  ),
+@router.get(
+    "/",
+    response_model=TenantQuotaResponse,
+    summary="Get quotas for all projects of a tenant")
+async def get_tenant_quota(
+  projects: List = Depends(get_matched_projects),
   os_svc: OpenstackService = Depends(get_openstack_service),
 ):
   try:
-    logger.info("Fetching quota for tenant: %s", tenant_name)
-    return os_svc.get_quota(tenant_name)
+    logger.info("Fetching quota for tenant")
+    quota_list = []
+    for proj in projects:
+      data = os_svc.get_quota(proj)
+      quota_list.append(data)
+    return TenantQuotaResponse(projects_quotas=quota_list)
   except os_exceptions.ResourceNotFound as e:
+    logger.warning("Resource not found: %s", str(e))
     raise HTTPException(
       status_code=status.HTTP_404_NOT_FOUND,
       detail=str(e)
     )
   except os_exceptions.HttpException as e:
-    if e.http_status == status.HTTP_401_UNAUTHORIZED:
+    logger.error("HTTP error: %s", str(e))
+    if getattr(e, "status_code", None) == status.HTTP_401_UNAUTHORIZED:
       raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Unauthorized access to OpenStack API"
       )
     raise HTTPException(
-      status_code=e.http_status or status.HTTP_502_BAD_GATEWAY,
+      status_code=getattr(e, "status_code", status.HTTP_502_BAD_GATEWAY),
       detail=e.message or "Failed to connect to OpenStack API"
     )
-  except Exception:
+  except Exception as e:
+    logger.exception("Unexpected error: %s", str(e))
     raise HTTPException(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
       detail="An unexpected error occurred while fetching quota"
